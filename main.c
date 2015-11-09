@@ -12,62 +12,50 @@ volatile uint8_t tot_overflow = 0;
 volatile double step = 0.0;
 volatile double goto_step = DEGREES_90;
 
-// TIMER0 overflow interrupt - 20ms pulse
-ISR(TIMER0_OVF_vect)
-{
-	// keep a track of number of overflows
-	tot_overflow++;
-}
-
-// TIMER1 compare match interrupt
-ISR(TIMER1_COMPA_vect)
+// TIMER0 compare match interrupt - 0.01ms
+ISR(TIMER0_COMPA_vect)
 {
 	PORTB ^= (1 << PB4); 
 
 	// Keep servo pin HIGH for at least 1ms = 0 degrees
 	// 2ms = 180 degrees
 
-	if (step >= goto_step)
+	if (step >= 0.5)
 	{
 		// Reset
 		PORTB &= ~(1 << PB1); // Servo pin n goes low
+		step = 0.5;
 	}
 	else step += 0.01;
-
-/*	
-	// 1ms
-	if (step <= 1.0)
-	{
-		// 0 degrees
-	}
-	else if (step <= 2.0)
-	{
-		// 90 degrees
-	}
-	else
-	{
-		// Reset
-		PORTB &= ~(1 << PB1); // Servo pin n goes low
-		// step = 0.0;
-	}*/
 }
+
+// TIMER1 overflow interrupt - 20ms pulse
+ISR(TIMER1_OVF_vect)
+{
+	// keep a track of number of overflows
+	tot_overflow++;
+}
+
 
 int main()
 {
-	// Enable Timer 0 overflow interrupt
-	TIMSK |= (1 << TOIE0);
+	// Enable CTC Mode for Timer 0
+	TCCR0A |= (1 << WGM01);
 
-	// TCCR0A |= (1 << WGM01) | (1 << WGM00) | (1 << WGM02);
+	// Start Timer 0 with no prescaler
+	TCCR0B |= (1 << CS00);
 
-	// Set prescaler to 256
-	TCCR0B |= (1 << CS02);
+	// Enable Timer 0 Compare match interrupt
+	TIMSK |= (1 << OCIE0A);
 
-	// Enable CTC Mode for Timer 1 and start the clock with no prescaler
-	TCCR1 |= (1 << CTC1) | (1 << CS10);
-	// TCCR1 |= (1 << CTC1) | (1 << CS11) | (1 << CS13); // Testing purposes larger prescaler to slow down LED flash to +- 16ms
+	// CTC TOP value for a 0.01ms clock time period
+	OCR0A = 79;
 
-	// Enable Compare match interrupt for Timer 1
-	TIMSK |= (1 << OCIE1A);
+	// Timer 1 clock with 256 prescaler
+	TCCR1 |= (1 << CS10) | (1 << CS13); // Start clock with 256 prescaler
+
+	// Enable Timer 1 Overflow interrupt
+	TIMSK |= (1 << TOIE1);
 
 	// Reset Timer 0
 	TCNT0 = 0;
@@ -78,11 +66,6 @@ int main()
 	// Enable global interrupts
 	sei();
 
-	// CTC TOP value for a 0.01ms clock time period
-	// The datasheet doesn't specify if OCR1C will cause an compare interrupt
-	// to occur but from my tests it does. Toggling an LED in the compare interrupt
-	// shows this is the case.
-	OCR1C = 79;
 
 	DDRB |= (1 << PB1);
 	DDRB |= (1 << PB3);
@@ -99,7 +82,7 @@ int main()
 		{
 			// Check if the timer count reaches 115
 			// 20ms pulse complete
-			if (TCNT0 >= 115)
+			if (TCNT1 >= 115)
 			{
 				PORTB ^= (1 << PB3); 
 				
