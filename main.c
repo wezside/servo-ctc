@@ -1,100 +1,151 @@
+#include <stdlib.h>
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
+#include "utilz.h"
 
 
-#define DEGREES_ZERO 	1.0
-#define DEGREES_90 		1.5
-#define DEGREES_180 	2.0
 
-// global variable to count the number of overflows
-volatile uint8_t tot_overflow = 0;
-volatile double step = 0.0;
-volatile double goto_step = DEGREES_90;
+volatile double reading = 0;
+volatile long tot_overflow = 0;
+volatile long reading_map = 0;
 
-// TIMER0 compare match interrupt - 0.01ms
+double read_analog();
+
+/*ISR(TIMER0_COMPA_vect)
+{
+	// TCCR1 &= ~(1 << CTC1);
+	TIMSK &= ~(1 << OCIE0A);
+	PORTB &= ~(1 << PB1); 
+	// TIMSK |= (1 << TOIE0);
+}
+*/
 ISR(TIMER0_COMPA_vect)
 {
-	PORTB ^= (1 << PB4); 
-
-	// Keep servo pin HIGH for at least 1ms = 0 degrees
-	// 2ms = 180 degrees
-
-	if (step >= 0.5)
-	{
-		// Reset
-		PORTB &= ~(1 << PB1); // Servo pin n goes low
-		step = 0.5;
-	}
-	else step += 0.01;
-}
-
-// TIMER1 overflow interrupt - 20ms pulse
-ISR(TIMER1_OVF_vect)
-{
-	// keep a track of number of overflows
 	tot_overflow++;
+	if (tot_overflow >= reading_map)
+	{
+		// Servo pin low
+		PORTB &= ~(1 << PB1); 
+		PORTB ^= (1 << PB3); 
+	}
+
+	if (tot_overflow >= 2000)
+	{
+		tot_overflow = 0;
+		TCNT0 = 0;
+		
+		// Servo pin high
+		PORTB |= (1 << PB1); 
+	}
 }
 
+ISR(PCINT0_vect)
+{
+	send_debug(reading_map);
+}
 
-int main()
+void init_adc()
+{
+	//Configure ADMUX register
+	ADMUX =
+	 (1 << ADLAR)| 		// Shift in a 1 and follow 8bit procedure
+	 (1 << MUX0)| 		// Use ADC1 or PB2 pin for Vin
+	 (0 << REFS0)| 		// set refs0 and 1 to 0 to use Vcc as Vref
+	 (0 << REFS1);
+	
+	//Configure ADCSRA register
+	ADCSRA =
+	 (1 << ADEN)| //set ADEN bit to 1 to enable the ADC
+	 (0 << ADSC); //set ADSC to 0 to make sure no conversions are happening
+}
+
+void disable_adc()
+{
+	ADCSRA &= ~(1 << ADEN);
+}
+
+double read_analog()
+{
+	ADCSRA |= (1 << ADSC);
+	while (((ADCSRA >> ADSC) & 1)){}
+	return ADCH;
+}
+
+void init_timer_0()
 {
 	// Enable CTC Mode for Timer 0
-	TCCR0A |= (1 << WGM01);
+	TCCR0A |= (1 << WGM01) | (1 << COM0A1);
 
-	// Start Timer 0 with no prescaler
-	TCCR0B |= (1 << CS00);
+	// Start Timer 0 with prescaler CK/8
+	TCCR0B |= (1 << CS01);
 
 	// Enable Timer 0 Compare match interrupt
 	TIMSK |= (1 << OCIE0A);
 
-	// CTC TOP value for a 0.01ms clock time period
-	OCR0A = 79;
+	// CTC TOP value 
+	OCR0A = 10;	
 
-	// Timer 1 clock with 256 prescaler
-	TCCR1 |= (1 << CS10) | (1 << CS13); // Start clock with 256 prescaler
+	// Reset Timer 0
+	TCNT0 = 0;
+}
+
+void init_timer_1()
+{
+	// Timer 1 clock with 64 prescaler
+	TCCR1 |= (1 << CS12) | (1 << CS11) | (1 << CS10); // Start clock with 256 prescaler
+
+	// TOP value 
+	OCR1A = 255;
 
 	// Enable Timer 1 Overflow interrupt
 	TIMSK |= (1 << TOIE1);
 
-	// Reset Timer 0
-	TCNT0 = 0;
-
 	// Reset Timer 1
 	TCNT1 = 0;
+}
 
-	// Enable global interrupts
-	sei();
+void init_pin_interrupt(int p)
+{	
+	GIMSK |= (1 << PCIE);
+	PCMSK |= (1 << p);
+}
+
+int main()
+{
+	init_timer_0();
+
+	init_pin_interrupt(PCINT0);
+
+	init_adc();
+
+	util_init();
 
 
+	// Outputs
 	DDRB |= (1 << PB1);
 	DDRB |= (1 << PB3);
 	DDRB |= (1 << PB4);
 
 	PORTB &= ~(1 << PB3); // Set LED low
-	PORTB &= ~(1 << PB4); // Set LED low
 	PORTB &= ~(1 << PB1); // Set Servo pin low
 
-	for (;;)
+	// Inputs	
+	DDRB &= ~(1 << PB0); /* Set PB0 as input */
+    PORTB |= (1 << PB0); /* Activate PULL UP resistor */ 
+
+
+	// Toggle LED
+	PORTB ^= (1 << PB3); 
+	_delay_ms(1000);
+	PORTB ^= (1 << PB3); 	
+
+	// Enable global interrupts
+	sei();
+
+	while(1)
 	{
-		// Check if no. of overflows = 2
-		if (tot_overflow >= 2)  // NOTE: '>=' is used
-		{
-			// Check if the timer count reaches 115
-			// 20ms pulse complete
-			if (TCNT1 >= 115)
-			{
-				PORTB ^= (1 << PB3); 
-				
-				TCNT0 = 0;          // reset timer 0
-				TCNT1 = 0;          // reset timer 1
-				tot_overflow = 0;   // reset overflow counter
-				
-
-				// Pull servo pin HIGH
-				PORTB |= (1 << PB1); 
-
-			}
-		}
+		reading = read_analog();
+		reading_map = map(reading, 0, 255, 410, 1580, 1) / 1000.0 / 0.01;	
 	}
 }
