@@ -4,8 +4,6 @@
 #include <util/delay.h>
 #include "utilz.h"
 
-
-
 volatile double reading = 0;
 volatile long tot_overflow = 0;
 volatile long reading_map = 0;
@@ -80,21 +78,6 @@ void init_timer_0()
 
 	// Reset Timer 0
 	TCNT0 = 0;
-}
-
-void init_timer_1()
-{
-	// Timer 1 clock with 64 prescaler
-	TCCR1 |= (1 << CS12) | (1 << CS11) | (1 << CS10); // Start clock with 256 prescaler
-
-	// TOP value 
-	OCR1A = 255;
-
-	// Enable Timer 1 Overflow interrupt
-	TIMSK |= (1 << TOIE1);
-
-	// Reset Timer 1
-	TCNT1 = 0;
 }
 
 void init_pin_interrupt(int p)
