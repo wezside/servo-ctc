@@ -12,14 +12,6 @@ volatile long reading_map = 0;
 
 double read_analog();
 
-/*ISR(TIMER0_COMPA_vect)
-{
-	// TCCR1 &= ~(1 << CTC1);
-	TIMSK &= ~(1 << OCIE0A);
-	PORTB &= ~(1 << PB1); 
-	// TIMSK |= (1 << TOIE0);
-}
-*/
 ISR(TIMER0_COMPA_vect)
 {
 	tot_overflow++;
@@ -27,7 +19,7 @@ ISR(TIMER0_COMPA_vect)
 	{
 		// Servo pin low
 		PORTB &= ~(1 << PB1); 
-		PORTB ^= (1 << PB3); 
+		// PORTB ^= (1 << PB3); 
 	}
 
 	if (tot_overflow >= 2000)
